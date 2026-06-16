@@ -1,87 +1,3 @@
-const Anthropic = require("@anthropic-ai/sdk").default;
-
-const MODELS = {
-  opus: "claude-opus-4-6",
-  sonnet: "claude-sonnet-4-6",
-};
-
-function buildSystemPrompt(context) {
-  let contextBlock = "";
-  if (context) {
-    contextBlock = `\n## ユーザーが提供したトーク情報\n「${context}」\nこの情報を送信者の判別に活用してください。ここに記載された名前が画面上部やアイコン横に表示されている名前と一致する場合、その名前を送信者名として使用してください。\n`;
-  }
-
-  return `あなたはLINEメッセージアプリのスクリーンショットを解析し、テキストに変換する専門家です。
-画像を注意深く観察し、すべてのメッセージを正確に読み取ってください。
-${contextBlock}
-## LINEの画面構造（重要：送信者判別の基本ルール）
-
-### 吹き出しの位置による送信者判別（最も重要）
-- **画面の右側に表示される吹き出し** → 必ず「自分」（スクリーンショットを撮った本人）のメッセージ
-- **画面の左側に表示される吹き出し** → 必ず「相手」のメッセージ
-- この左右のルールは絶対です。例外はありません。
-
-### 吹き出しの色
-- 右側の吹き出しは通常、緑色（LINEのデフォルト）
-- 左側の吹き出しは通常、白色または薄い灰色
-- ただしテーマ変更により色が異なる場合があるため、**位置（左右）を最優先**で判断してください
-
-### 送信者名の特定方法
-- **1対1トーク**: 画面最上部のヘッダーに相手の名前が表示されている。左側の吹き出しはすべてその人のメッセージ
-- **グループトーク**: 左側の吹き出しの上に小さく送信者名が表示される。同じ人が連続で発言する場合、2つ目以降は名前が省略されることがある（直前と同じ送信者）
-- 右側の吹き出しには名前は表示されない（常に「自分」）
-
-### その他のUI要素
-- 吹き出しの横の小さい数字 = 送信時刻（例: 14:02）
-- 「既読」= 相手がメッセージを読んだことを示す（右側の吹き出しの横に表示）
-- 日付の区切り線 = 「2024年6月15日(土)」のような横線で区切られた日付表示
-- 吹き出しの左横の丸い画像 = 送信者のプロフィールアイコン
-
-## 出力フォーマット
-
-### ヘッダー
-トーク相手: [画面上部に表示されている名前またはグループ名]
-
-### 日付区切り
-日付の区切り線が画面に表示されている場合:
---- YYYY/MM/DD ---
-
-### メッセージ
-【送信者名】メッセージ内容（YYYY/MM/DD HH:MM）
-
-### ルール
-- 右側の吹き出し → 送信者名は必ず「自分」
-- 左側の吹き出し → 送信者名は相手の名前（1対1ならヘッダーの名前、グループなら吹き出し上の名前）
-- 日付は画面内の日付区切り線から読み取る。区切り線がない場合、ステータスバー等から推測。不明なら「--/--/--」
-- 時刻は吹き出しの横に表示されている数字を読み取る。不明なら「--:--」
-- スタンプ → [スタンプ]
-- 写真・画像 → [画像]
-- 動画 → [動画]
-- ボイスメッセージ → [ボイスメッセージ]
-- URL → そのまま記載
-- 改行を含むメッセージはそのまま改行を保持
-- 読み取れない文字 → [判読不能]
-- メッセージは画面上から下の順番で出力
-
-## 出力例
-トーク相手: 田中太郎
-
---- 2024/06/15 ---
-【田中太郎】今日の会議何時からだっけ？（2024/06/15 14:02）
-【自分】15時からだよ（2024/06/15 14:03）
-【自分】会議室Bで（2024/06/15 14:03）
-【田中太郎】了解！（2024/06/15 14:05）
-【田中太郎】[スタンプ]（2024/06/15 14:05）
---- 2024/06/16 ---
-【自分】昨日はありがとう（2024/06/16 09:10）
-
-## 注意事項
-- 日本語の漢字・ひらがな・カタカナを正確に区別してください
-- 似ている文字（「は」と「ば」、「シ」と「ツ」、「ソ」と「ン」など）に注意してください
-- 句読点や記号も正確に読み取ってください
-- メッセージを推測や補完せず、画像に見えるものだけを忠実に出力してください`;
-}
-
 module.exports = async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -92,47 +8,302 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: "APIキーが設定されていません" });
   }
 
-  const { image, mediaType, model, context } = req.body;
+  const { image, mediaType, context } = req.body;
   if (!image) {
     return res.status(400).json({ error: "画像がアップロードされていませんでした" });
   }
 
-  const client = new Anthropic({ apiKey });
-  const modelId = MODELS[model] || MODELS.opus;
-
   try {
-    const response = await client.messages.create({
-      model: modelId,
-      max_tokens: 4096,
-      system: buildSystemPrompt(context || ""),
-      messages: [
-        {
-          role: "user",
-          content: [
+    const visionRes = await fetch(
+      `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          requests: [
             {
-              type: "image",
-              source: { type: "base64", media_type: mediaType, data: image },
-            },
-            {
-              type: "text",
-              text: "このLINEのスクリーンショットに表示されているすべてのメッセージを、指定フォーマットで正確に書き起こしてください。吹き出しの左右の位置に注意して送信者を正しく判別してください。",
+              image: { content: image },
+              features: [{ type: "DOCUMENT_TEXT_DETECTION", maxResults: 1 }],
+              imageContext: { languageHints: ["ja", "en"] },
             },
           ],
-        },
-      ],
-    });
+        }),
+      }
+    );
 
-    const text = response.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
-      .join("");
+    const visionData = await visionRes.json();
 
-    res.json({ result: text });
+    if (visionData.error) {
+      const msg =
+        visionData.error.code === 400 || visionData.error.code === 403
+          ? "APIキーが無効です。Google Cloud Vision APIが有効か確認してください。"
+          : `Vision API エラー: ${visionData.error.message}`;
+      return res.status(400).json({ error: msg });
+    }
+
+    const apiResult = visionData.responses?.[0];
+    if (apiResult?.error) {
+      return res.status(400).json({ error: `Vision API エラー: ${apiResult.error.message}` });
+    }
+
+    const result = parseVisionResult(apiResult, context || "");
+    res.json({ result });
   } catch (err) {
-    const msg =
-      err.status === 401
-        ? "APIキーが無効です。正しいキーを入力してください。"
-        : `解析中にエラーが発生しました: ${err.message}`;
-    res.status(err.status || 500).json({ error: msg });
+    res.status(500).json({ error: `解析中にエラーが発生しました: ${err.message}` });
   }
 };
+
+function parseVisionResult(apiResult, context) {
+  const annotation = apiResult?.fullTextAnnotation;
+  if (!annotation || !annotation.pages?.length) {
+    return "テキストが検出されませんでした。画像を確認してください。";
+  }
+
+  const page = annotation.pages[0];
+  const imgW = page.width;
+  const imgH = page.height;
+
+  const blocks = extractBlocks(page);
+  blocks.sort((a, b) => a.topY - b.topY);
+
+  const headerBottom = imgH * 0.11;
+  const inputBarTop = imgH * 0.88;
+
+  const partnerName = detectPartnerName(blocks, imgW, headerBottom, context);
+
+  const chatBlocks = blocks.filter(
+    (b) => b.topY >= headerBottom && b.bottomY <= inputBarTop
+  );
+
+  const elements = classifyBlocks(chatBlocks, imgW, imgH, partnerName);
+  associateTimestamps(elements);
+  detectGroupSenders(elements);
+
+  return formatOutput(partnerName, elements);
+}
+
+function extractBlocks(page) {
+  const result = [];
+  if (!page.blocks) return result;
+
+  for (const block of page.blocks) {
+    if (block.blockType && block.blockType !== "TEXT") continue;
+    if (!block.boundingBox?.vertices) continue;
+
+    const v = block.boundingBox.vertices;
+    const leftX = Math.min(v[0]?.x ?? 0, v[3]?.x ?? 0);
+    const rightX = Math.max(v[1]?.x ?? 0, v[2]?.x ?? 0);
+    const topY = Math.min(v[0]?.y ?? 0, v[1]?.y ?? 0);
+    const bottomY = Math.max(v[2]?.y ?? 0, v[3]?.y ?? 0);
+
+    const text = extractTextFromBlock(block);
+    if (!text) continue;
+
+    result.push({
+      text,
+      leftX,
+      rightX,
+      topY,
+      bottomY,
+      centerX: (leftX + rightX) / 2,
+      width: rightX - leftX,
+      height: bottomY - topY,
+    });
+  }
+  return result;
+}
+
+function extractTextFromBlock(block) {
+  let text = "";
+  for (const para of block.paragraphs || []) {
+    for (const word of para.words || []) {
+      for (const symbol of word.symbols || []) {
+        text += symbol.text || "";
+        const bp = symbol.property?.detectedBreak?.type;
+        if (bp === "SPACE" || bp === "SURE_SPACE") text += " ";
+        else if (bp === "EOL_SURE_SPACE" || bp === "LINE_BREAK") text += "\n";
+      }
+    }
+  }
+  return text.trim();
+}
+
+function detectPartnerName(blocks, imgW, headerBottom, context) {
+  if (context) return context;
+
+  const headerBlocks = blocks.filter(
+    (b) =>
+      b.topY < headerBottom &&
+      b.centerX > imgW * 0.25 &&
+      b.centerX < imgW * 0.75 &&
+      b.text.length > 1 &&
+      !b.text.match(/^\d{1,2}:\d{2}$/) &&
+      !b.text.match(/^[<←▼≡☰]/)
+  );
+
+  if (headerBlocks.length > 0) {
+    headerBlocks.sort((a, b) => b.width - a.width);
+    return headerBlocks[0].text.replace(/\n/g, " ").trim();
+  }
+  return "相手";
+}
+
+function classifyBlocks(chatBlocks, imgW, imgH, partnerName) {
+  const elements = [];
+  let currentDate = "--/--/--";
+
+  for (const block of chatBlocks) {
+    const text = block.text;
+
+    if (text.match(/^既読\s*\d*$/) || text === "既読") continue;
+
+    const dateResult = tryParseDate(text, block, imgW);
+    if (dateResult) {
+      currentDate = dateResult;
+      elements.push({ type: "date", date: currentDate });
+      continue;
+    }
+
+    const timeMatch = text.match(/^(\d{1,2}):(\d{2})$/);
+    if (timeMatch && block.height < imgH * 0.04) {
+      elements.push({
+        type: "time",
+        time: `${timeMatch[1].padStart(2, "0")}:${timeMatch[2]}`,
+        topY: block.topY,
+        bottomY: block.bottomY,
+        centerX: block.centerX,
+        leftX: block.leftX,
+        rightX: block.rightX,
+      });
+      continue;
+    }
+
+    const side = classifySide(block, imgW);
+    if (side === "center") continue;
+
+    const sender = side === "right" ? "自分" : partnerName;
+
+    let msgText = text;
+    const trailingTime = msgText.match(/\n?(\d{1,2}:\d{2})$/);
+    let extractedTime = null;
+    if (trailingTime) {
+      extractedTime = trailingTime[1];
+      msgText = msgText.slice(0, -trailingTime[0].length).trim();
+    }
+
+    if (!msgText) continue;
+
+    elements.push({
+      type: "message",
+      sender,
+      text: msgText,
+      date: currentDate,
+      time: extractedTime
+        ? `${extractedTime.split(":")[0].padStart(2, "0")}:${extractedTime.split(":")[1]}`
+        : "--:--",
+      topY: block.topY,
+      bottomY: block.bottomY,
+      centerX: block.centerX,
+      leftX: block.leftX,
+      rightX: block.rightX,
+      side,
+    });
+  }
+
+  return elements;
+}
+
+function tryParseDate(text, block, imgW) {
+  if (!isCenter(block, imgW)) return null;
+
+  let m = text.match(/(\d{4})[年\/](\d{1,2})[月\/](\d{1,2})/);
+  if (m) return `${m[1]}/${m[2].padStart(2, "0")}/${m[3].padStart(2, "0")}`;
+
+  m = text.match(/(\d{1,2})[\/月](\d{1,2})/);
+  if (m && text.match(/[月火水木金土日]/)) {
+    const now = new Date();
+    return `${now.getFullYear()}/${m[1].padStart(2, "0")}/${m[2].padStart(2, "0")}`;
+  }
+
+  return null;
+}
+
+function isCenter(block, imgW) {
+  return block.centerX > imgW * 0.3 && block.centerX < imgW * 0.7 && block.width < imgW * 0.6;
+}
+
+function classifySide(block, imgW) {
+  const rightMargin = imgW - block.rightX;
+  const leftMargin = block.leftX;
+
+  if (rightMargin < imgW * 0.08) return "right";
+  if (leftMargin < imgW * 0.18) return "left";
+
+  if (block.centerX > imgW * 0.6) return "right";
+  if (block.centerX < imgW * 0.4) return "left";
+
+  return "center";
+}
+
+function associateTimestamps(elements) {
+  const messages = elements.filter((e) => e.type === "message");
+  const timestamps = elements.filter((e) => e.type === "time");
+
+  for (const ts of timestamps) {
+    const tsMidY = (ts.topY + ts.bottomY) / 2;
+    let nearest = null;
+    let minDist = Infinity;
+
+    for (const msg of messages) {
+      if (msg.time !== "--:--") continue;
+      const msgMidY = (msg.topY + msg.bottomY) / 2;
+      const dist = Math.abs(tsMidY - msgMidY);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = msg;
+      }
+    }
+
+    if (nearest && minDist < nearest.bottomY - nearest.topY + 30) {
+      nearest.time = ts.time;
+    }
+  }
+}
+
+function detectGroupSenders(elements) {
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    if (el.type !== "message" || el.side !== "left") continue;
+
+    if (i > 0) {
+      const prev = elements[i - 1];
+      if (
+        prev.type === "message" &&
+        prev.side === "left" &&
+        prev.text.length < 20 &&
+        !prev.text.includes("\n") &&
+        prev.bottomY - prev.topY < (el.bottomY - el.topY) * 0.6
+      ) {
+        el.sender = prev.text;
+        prev.type = "sender_label";
+      }
+    }
+  }
+}
+
+function formatOutput(partnerName, elements) {
+  let output = `トーク相手: ${partnerName}\n\n`;
+  let lastDate = null;
+
+  for (const el of elements) {
+    if (el.type === "date") {
+      output += `--- ${el.date} ---\n`;
+      lastDate = el.date;
+    } else if (el.type === "message") {
+      const date = el.date || lastDate || "--/--/--";
+      output += `【${el.sender}】${el.text}（${date} ${el.time}）\n`;
+    }
+  }
+
+  return output.trim();
+}
