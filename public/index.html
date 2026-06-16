@@ -200,6 +200,45 @@
     margin-bottom: 12px;
   }
   .error-box.active { display: block; }
+
+  .field-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-sub);
+    margin-bottom: 6px;
+  }
+  .model-select { display: flex; gap: 8px; }
+  .model-option { flex: 1; cursor: pointer; }
+  .model-option input { display: none; }
+  .model-card {
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .model-card strong { display: block; font-size: 13px; margin-bottom: 2px; }
+  .model-card span { font-size: 11px; color: var(--text-sub); }
+  .model-option input:checked + .model-card {
+    border-color: var(--green);
+    background: rgba(6,199,85,0.06);
+  }
+  .context-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .context-input:focus { border-color: var(--green); }
+  .context-hint {
+    font-size: 11px;
+    color: var(--text-sub);
+    margin-top: 4px;
+  }
 </style>
 </head>
 <body>
@@ -216,6 +255,30 @@
       <button class="save-btn" id="saveKeyBtn">保存</button>
     </div>
     <div class="api-key-status" id="keyStatus"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">設定</div>
+    <label class="field-label">モデル</label>
+    <div class="model-select">
+      <label class="model-option">
+        <input type="radio" name="model" value="opus" checked>
+        <div class="model-card">
+          <strong>高精度（Opus）</strong>
+          <span>約5〜10円/回・読み取り精度が高い</span>
+        </div>
+      </label>
+      <label class="model-option">
+        <input type="radio" name="model" value="sonnet">
+        <div class="model-card">
+          <strong>標準（Sonnet）</strong>
+          <span>約1〜3円/回・速度が速い</span>
+        </div>
+      </label>
+    </div>
+    <label class="field-label" style="margin-top:14px">トーク情報（任意）</label>
+    <input type="text" id="contextInput" class="context-input" placeholder="例: 田中太郎との1対1トーク、営業部グループ">
+    <div class="context-hint">相手の名前やグループ名を入力すると送信者の判別精度が上がります</div>
   </div>
 
   <div class="card">
@@ -346,7 +409,12 @@ analyzeBtn.addEventListener("click", async () => {
         "Content-Type": "application/json",
         "X-Api-Key": apiKeyInput.value.trim(),
       },
-      body: JSON.stringify({ image: base64, mediaType: selectedFile.type }),
+      body: JSON.stringify({
+        image: base64,
+        mediaType: selectedFile.type,
+        model: document.querySelector('input[name="model"]:checked').value,
+        context: document.querySelector('#contextInput').value.trim(),
+      }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "不明なエラー");
