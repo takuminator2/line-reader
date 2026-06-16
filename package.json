@@ -1,0 +1,12 @@
+{
+  "name": "line-reader",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.52.0",
+    "express": "^5.1.0"
+  }
+}

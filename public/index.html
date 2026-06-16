@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>LINE Screenshot Reader</title>
+<style>
+  :root {
+    --green: #06C755;
+    --green-dark: #05a648;
+    --bg: #f5f5f5;
+    --card: #ffffff;
+    --text: #1a1a1a;
+    --text-sub: #666666;
+    --border: #e0e0e0;
+    --error: #e74c3c;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100dvh;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  header {
+    background: var(--green);
+    color: #fff;
+    padding: 16px 20px;
+    text-align: center;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  }
+  header h1 { font-size: 18px; font-weight: 700; }
+  header p { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+  .container { max-width: 600px; margin: 0 auto; padding: 16px; }
+
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  .card-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-sub);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .api-key-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .api-key-row input {
+    flex: 1;
+    padding: 10px 12px;
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .api-key-row input:focus { border-color: var(--green); }
+  .api-key-row .save-btn {
+    background: var(--green);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .api-key-row .save-btn:active { background: var(--green-dark); }
+  .api-key-status {
+    font-size: 12px;
+    margin-top: 6px;
+    color: var(--text-sub);
+  }
+  .api-key-status.saved { color: var(--green); }
+
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 12px;
+    padding: 32px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+  }
+  .drop-zone.dragover { border-color: var(--green); background: rgba(6,199,85,0.05); }
+  .drop-zone.has-image { border-style: solid; padding: 12px; }
+  .drop-zone input[type="file"] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer;
+  }
+  .drop-icon { font-size: 40px; margin-bottom: 8px; }
+  .drop-text { font-size: 14px; color: var(--text-sub); }
+  .drop-text span { color: var(--green); font-weight: 600; }
+
+  .preview-img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 8px;
+    display: block;
+    margin: 0 auto;
+  }
+  .change-img {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--green);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .analyze-btn {
+    width: 100%;
+    padding: 14px;
+    background: var(--green);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 16px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-bottom: 12px;
+  }
+  .analyze-btn:active { background: var(--green-dark); }
+  .analyze-btn:disabled {
+    background: #ccc;
+    cursor: not-allowed;
+  }
+
+  .spinner {
+    display: none;
+    text-align: center;
+    padding: 24px;
+  }
+  .spinner.active { display: block; }
+  .spinner-ring {
+    width: 36px; height: 36px;
+    border: 3px solid var(--border);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner-text { font-size: 13px; color: var(--text-sub); }
+
+  .result-box {
+    display: none;
+  }
+  .result-box.active { display: block; }
+  .result-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 14px;
+    line-height: 1.7;
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 16px;
+    border: 1px solid var(--border);
+    max-height: 60vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .copy-btn {
+    margin-top: 10px;
+    width: 100%;
+    padding: 12px;
+    background: #fff;
+    color: var(--green);
+    border: 2px solid var(--green);
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .copy-btn:active { background: rgba(6,199,85,0.08); }
+  .copy-btn.copied { background: var(--green); color: #fff; }
+
+  .error-box {
+    display: none;
+    background: #fff5f5;
+    border: 1px solid var(--error);
+    border-radius: 8px;
+    padding: 14px;
+    color: var(--error);
+    font-size: 13px;
+    margin-bottom: 12px;
+  }
+  .error-box.active { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LINE Screenshot Reader</h1>
+  <p>スクリーンショットからメッセージを抽出</p>
+</header>
+
+<div class="container">
+  <div class="card">
+    <div class="card-title">API Key</div>
+    <div class="api-key-row">
+      <input type="password" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
+      <button class="save-btn" id="saveKeyBtn">保存</button>
+    </div>
+    <div class="api-key-status" id="keyStatus"></div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">スクリーンショット</div>
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept="image/*">
+      <div id="dropPrompt">
+        <div class="drop-icon">📱</div>
+        <div class="drop-text"><span>タップして画像を選択</span><br>またはドラッグ＆ドロップ</div>
+      </div>
+      <div id="previewArea" style="display:none">
+        <img class="preview-img" id="previewImg">
+        <div class="change-img">画像を変更する</div>
+      </div>
+    </div>
+  </div>
+
+  <button class="analyze-btn" id="analyzeBtn" disabled>解析する</button>
+
+  <div class="error-box" id="errorBox"></div>
+
+  <div class="spinner" id="spinner">
+    <div class="spinner-ring"></div>
+    <div class="spinner-text">画像を解析中…</div>
+  </div>
+
+  <div class="result-box" id="resultBox">
+    <div class="card">
+      <div class="card-title">解析結果</div>
+      <div class="result-content" id="resultContent"></div>
+      <button class="copy-btn" id="copyBtn">テキストをコピー</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const apiKeyInput = $("#apiKey");
+const saveKeyBtn = $("#saveKeyBtn");
+const keyStatus = $("#keyStatus");
+const fileInput = $("#fileInput");
+const dropZone = $("#dropZone");
+const dropPrompt = $("#dropPrompt");
+const previewArea = $("#previewArea");
+const previewImg = $("#previewImg");
+const analyzeBtn = $("#analyzeBtn");
+const spinner = $("#spinner");
+const resultBox = $("#resultBox");
+const resultContent = $("#resultContent");
+const copyBtn = $("#copyBtn");
+const errorBox = $("#errorBox");
+
+let selectedFile = null;
+
+const savedKey = localStorage.getItem("line_reader_api_key");
+if (savedKey) {
+  apiKeyInput.value = savedKey;
+  keyStatus.textContent = "保存済み";
+  keyStatus.className = "api-key-status saved";
+}
+
+saveKeyBtn.addEventListener("click", () => {
+  const key = apiKeyInput.value.trim();
+  if (key) {
+    localStorage.setItem("line_reader_api_key", key);
+    keyStatus.textContent = "保存しました";
+    keyStatus.className = "api-key-status saved";
+  }
+  updateBtn();
+});
+
+function showFile(file) {
+  if (!file || !file.type.startsWith("image/")) return;
+  selectedFile = file;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    previewImg.src = e.target.result;
+    dropPrompt.style.display = "none";
+    previewArea.style.display = "block";
+    dropZone.classList.add("has-image");
+    updateBtn();
+  };
+  reader.readAsDataURL(file);
+}
+
+fileInput.addEventListener("change", (e) => {
+  if (e.target.files[0]) showFile(e.target.files[0]);
+});
+
+dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("dragover"); });
+dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+dropZone.addEventListener("drop", (e) => {
+  e.preventDefault();
+  dropZone.classList.remove("dragover");
+  if (e.dataTransfer.files[0]) showFile(e.dataTransfer.files[0]);
+});
+
+function updateBtn() {
+  analyzeBtn.disabled = !(selectedFile && apiKeyInput.value.trim());
+}
+apiKeyInput.addEventListener("input", updateBtn);
+
+function showError(msg) {
+  errorBox.textContent = msg;
+  errorBox.classList.add("active");
+}
+function hideError() {
+  errorBox.classList.remove("active");
+}
+
+analyzeBtn.addEventListener("click", async () => {
+  hideError();
+  resultBox.classList.remove("active");
+  spinner.classList.add("active");
+  analyzeBtn.disabled = true;
+
+  try {
+    const base64 = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result.split(",")[1]);
+      r.onerror = reject;
+      r.readAsDataURL(selectedFile);
+    });
+
+    const res = await fetch("/api/analyze", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Key": apiKeyInput.value.trim(),
+      },
+      body: JSON.stringify({ image: base64, mediaType: selectedFile.type }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "不明なエラー");
+    resultContent.textContent = data.result;
+    resultBox.classList.add("active");
+    resultBox.scrollIntoView({ behavior: "smooth" });
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    spinner.classList.remove("active");
+    updateBtn();
+  }
+});
+
+copyBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(resultContent.textContent);
+    copyBtn.textContent = "コピーしました！";
+    copyBtn.classList.add("copied");
+    setTimeout(() => { copyBtn.textContent = "テキストをコピー"; copyBtn.classList.remove("copied"); }, 2000);
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents(resultContent);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+});
+</script>
+</body>
+</html>
