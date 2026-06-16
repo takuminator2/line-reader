@@ -34,16 +34,16 @@ module.exports = async function handler(req, res) {
     const visionData = await visionRes.json();
 
     if (visionData.error) {
-      const msg =
-        visionData.error.code === 400 || visionData.error.code === 403
-          ? "APIキーが無効です。Google Cloud Vision APIが有効か確認してください。"
-          : `Vision API エラー: ${visionData.error.message}`;
-      return res.status(400).json({ error: msg });
+      return res.status(400).json({
+        error: `Google API エラー (${visionData.error.code}): ${visionData.error.message}\n\n対処法:\n・Cloud Vision API が「有効」になっているか確認\n・APIキーが正しくコピーされているか確認\n・APIキーの制限で Cloud Vision API が許可されているか確認`,
+      });
     }
 
     const apiResult = visionData.responses?.[0];
     if (apiResult?.error) {
-      return res.status(400).json({ error: `Vision API エラー: ${apiResult.error.message}` });
+      return res.status(400).json({
+        error: `Vision API エラー (${apiResult.error.code}): ${apiResult.error.message}`,
+      });
     }
 
     const result = parseVisionResult(apiResult, context || "");
