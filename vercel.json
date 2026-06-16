@@ -1,7 +1,13 @@
 {
+  "framework": null,
+  "buildCommand": "",
+  "outputDirectory": "public",
   "functions": {
-    "api/analyze.js": {
+    "api/*.js": {
       "maxDuration": 60
     }
-  }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" }
+  ]
 }
